@@ -2,11 +2,12 @@ find_package(RapidJSON REQUIRED)
 
 add_executable(prmon src/prmon.cpp
 					 src/pidutils.cpp
-					 src/netmon.cpp 
-					 src/iomon.cpp 
-					 src/cpumon.cpp 
+					 src/netmon.cpp
+					 src/iomon.cpp
+					 src/cpumon.cpp
 					 src/wallmon.cpp
-					 src/memmon.cpp)
+					 src/memmon.cpp
+					 src/limitmem.cpp)
 target_include_directories(prmon PRIVATE ${RapidJSON_INCLUDE_DIR})
 
 # Set flags based on more unusual build flags
