@@ -1,2 +1,2 @@
-int rmvcgroup(int pid);
-int limitmem(int pid, double pourcentage);
+
+int limitmem(int pid, const std::string& val);
