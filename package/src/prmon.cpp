@@ -32,6 +32,7 @@
 #include "pidutils.h"
 #include "prmon.h"
 #include "wallmon.h"
+#include "limitmem.h"
 
 using namespace rapidjson;
 
@@ -225,12 +226,12 @@ int main(int argc, char* argv[]) {
   const unsigned int default_interval = 30;
 
   pid_t pid = -1;
-  bool got_pid = false;
+  bool got_pid = false, got_limit_mem = false;
   std::string filename{default_filename};
   std::string jsonSummary{default_json_summary};
   std::vector<std::string> netdevs{};
   unsigned int interval{default_interval};
-  int do_help{0};
+  int do_help{0}, prctg{0};
 
   static struct option long_options[] = {
       {"pid", required_argument, NULL, 'p'},
@@ -238,11 +239,12 @@ int main(int argc, char* argv[]) {
       {"json-summary", required_argument, NULL, 'j'},
       {"interval", required_argument, NULL, 'i'},
       {"netdev", required_argument, NULL, 'n'},
+      {"limitmem", required_argument, NULL, 'm'},
       {"help", no_argument, NULL, 'h'},
       {0, 0, 0, 0}};
 
   char c;
-  while ((c = getopt_long(argc, argv, "p:f:j:i:n:h", long_options, NULL)) !=
+  while ((c = getopt_long(argc, argv, "p:f:j:i:n:m:h", long_options, NULL)) !=
          -1) {
     switch (c) {
       case 'p':
@@ -260,6 +262,10 @@ int main(int argc, char* argv[]) {
         break;
       case 'n':
         netdevs.push_back(optarg);
+        break;
+      case 'm':
+        got_limit_mem = true;
+        prctg = std::stoi(optarg);
         break;
       case 'h':
         do_help = 1;
@@ -329,9 +335,15 @@ int main(int argc, char* argv[]) {
     }
     pid_t child = fork();
     if( child == 0 ) {
+      if(got_limit_mem)
+        if(limitmem(getpid(), prctg))
+          // Could not limit the memory
+          return 1;
       execvp(argv[child_args],&argv[child_args]);
     } else if ( child > 0 ) {
       MemoryMonitor(child, filename, jsonSummary, interval, netdevs);
+      if(got_limit_mem)
+        rmvcgroup(child);
     }
   }
 
