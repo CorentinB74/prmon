@@ -77,10 +77,10 @@ public:
   bool cgroup_init_flag = false;
 
 private:
-  CgError_t init();
-  CgError_t build_path(const std::string& grp_name, const std::string& subsys_name, std::string& path);
-  CgError_t add_parameters(const std::string& controller);
-  CgError_t init_group();
+  int init();
+  int build_path(const std::string& grp_name, const std::string& subsys_name, std::string& path);
+  int add_parameters(const std::string& controller);
+  int init_group();
 
   bool is_subsys_mounted(const std::string& name);
 
@@ -88,9 +88,10 @@ public:
   void print_params_controller(const std::string& controller);
   void print_mount_table();
 
-  CgError_t add_controller(const std::string& name);
-  CgError_t set_control_value(const std::string& path, const std::string& val);
-  CgError_t create_group(const std::string& controller);
-  CgError_t set_value(const std::string& controller, const std::string& param, const std::string& val);
-  CgError_t assign_proc_group(int pid, const std::string& controller);
+  int add_controller(const std::string& name);
+  int set_control_value(const std::string& path, const std::string& val);
+  int create_group(const std::string& controller);
+  int set_value(const std::string& controller, const std::string& param, const std::string& val);
+  int assign_proc_group(int pid, const std::string& controller);
+  int delete_group(const std::string& controller);
 };

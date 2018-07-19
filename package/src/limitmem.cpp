@@ -19,19 +19,23 @@ int limitmem(int pid, const std::string& val){
   std::string cgname = "group" + std::to_string(pid);
   Cgroup cg(cgname);
 
-  CgError_t ret = cg.create_group("memory");
+  int ret = cg.create_group("memory");
   if(ret){
-    print_error(ret);
+    cg.delete_group("memory");
+    return -1;
   }
+
 
   ret = cg.set_value("memory", "memory.limit_in_bytes", val);
   if(ret){
-    print_error(ret);
+    cg.delete_group("memory");
+    return -1;
   }
-  
+
   ret = cg.assign_proc_group(pid, "memory");
   if(ret){
-    print_error(ret);
+    cg.delete_group("memory");
+    return -1;
   }
 
   return 0;

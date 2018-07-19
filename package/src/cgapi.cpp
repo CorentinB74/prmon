@@ -12,8 +12,8 @@
 
 #include "cgapi.h"
 
-CgError_t Cgroup::init(){
-    CgError_t ret = CG_SUCCESS;
+int Cgroup::init(){
+    int ret = 0;
     std::string subsys_name;
     int hier, num_cgroups, enabled;
     std::vector<std::string> controllers;
@@ -28,7 +28,8 @@ CgError_t Cgroup::init(){
     // Read '/proc/cgroups' to get what subsystems are enabled
     std::ifstream proc_cgroups{"/proc/cgroups"};
     if (!proc_cgroups.is_open()){
-        ret = CG_E_FILE_OPEN;
+        print_error(CG_E_FILE_OPEN, "/proc/cgroups");
+        ret = -1;
         goto unlock_exit;
     }
 
@@ -38,7 +39,8 @@ CgError_t Cgroup::init(){
         std::getline(proc_cgroups, line);
         if (proc_cgroups.fail()){
             if (!proc_cgroups.eof()){
-                ret = CG_E_FILE_IO;
+                print_error(CG_E_FILE_IO, "/proc/cgroups");
+                ret = -1;
                 goto unlock_exit;
             }
         }
@@ -64,13 +66,15 @@ CgError_t Cgroup::init(){
     // Read '/proc/mounts' to get mount pointer of subsystems
     proc_mounts = fopen("/proc/mounts", "re");
     if (!proc_mounts){
-        ret = CG_E_FILE_OPEN;
+        print_error(CG_E_FILE_OPEN, "/proc/mounts");
+        ret = -1;
         goto unlock_exit;
     }
 
     tmp_ent = new struct mntent;
     if (!tmp_ent){
-        ret = CG_E_OOM;
+        print_error(CG_E_OOM, "mntent struct");
+        ret = -1;
         goto unlock_exit;
     }
     while ((ent = getmntent_r(proc_mounts, tmp_ent, mntent_buf, sizeof(mntent_buf))) != NULL){
@@ -128,18 +132,22 @@ void Cgroup::print_params_controller(const std::string& controller){
     }
 }
 
-CgError_t Cgroup::set_control_value(const std::string& path, const std::string& val){
+int Cgroup::set_control_value(const std::string& path, const std::string& val){
     std::ofstream control_file{path.c_str()};
 
-    if (!control_file.is_open())
-        return CG_E_FILE_OPEN;
+    if (!control_file.is_open()){
+      print_error(CG_E_FILE_OPEN, path.c_str());
+      return -1;
+    }
 
     control_file << val;
-    if (control_file.fail())
-        return CG_E_STREAM_IO;
+    if (control_file.fail()){
+      print_error(CG_E_STREAM_IO, path.c_str());
+      return -1;
+    }
 
     control_file.close();
-    return CG_SUCCESS;
+    return 0;
 }
 
 bool Cgroup::is_subsys_mounted(const std::string& name){
@@ -149,37 +157,43 @@ bool Cgroup::is_subsys_mounted(const std::string& name){
 	return false;
 }
 
-CgError_t Cgroup::build_path(const std::string& grp_name, const std::string& subsys_name, std::string& path){
+int Cgroup::build_path(const std::string& grp_name, const std::string& subsys_name, std::string& path){
 	for (auto& entry : cg_mount_table){
 	    if (entry.name.compare(subsys_name) == 0){
 		    std::ostringstream oss;
 		    oss << entry.path << "/" << grp_name;
-		    if (oss.fail())
-		        return CG_E_STREAM_IO;
+		    if (oss.fail()){
+          print_error(CG_E_STREAM_IO, oss.str());
+          return -1;
+        }
 
 			path = oss.str();
-			return CG_SUCCESS;
+			return 0;
 		}
 	}
-	return CG_E_SUBSYS_NOT_MOUNT;
+  print_error(CG_E_SUBSYS_NOT_MOUNT, "");
+	return -1;
 }
 
-CgError_t Cgroup::add_controller(const std::string& name){
-  for (const auto& controller : controllers)
-      if (controller.name.compare(name) == 0)
-          return CG_E_CONTROLLER_EXIT;
+int Cgroup::add_controller(const std::string& name){
+  for (const auto& controller : controllers){
+      if (controller.name.compare(name) == 0){
+        print_error(CG_E_CONTROLLER_EXIT, controller.name);
+        return -1;
+      }
+    }
 
   cgroup_controller ctlr(name.c_str());
 	controllers.push_back(ctlr);
-	return CG_SUCCESS;
+	return 0;
 }
 
-CgError_t Cgroup::add_parameters(const std::string& controller) {
-  CgError_t ret = CG_SUCCESS;
+int Cgroup::add_parameters(const std::string& controller) {
+  int ret = 0;
 
   std::string path;
   ret = build_path(name, controller, path);
-  if(ret != CG_SUCCESS)
+  if(ret != 0)
     return ret;
 
   DIR* d;
@@ -205,7 +219,8 @@ CgError_t Cgroup::add_parameters(const std::string& controller) {
               ifs.close();
             }
             else {
-              ret = CG_E_FILE_OPEN;
+              print_error(CG_E_FILE_OPEN, ss.str());
+              ret = -1;
             }
             ss.str("");
           }
@@ -219,16 +234,20 @@ CgError_t Cgroup::add_parameters(const std::string& controller) {
   return ret;
 }
 
-CgError_t Cgroup::init_group(){
-  CgError_t ret = CG_SUCCESS;
+int Cgroup::init_group(){
+  int ret = 0;
 
-	if (!cgroup_init_flag)
-	    return CG_E_NOT_INIT;
+	if (!cgroup_init_flag){
+    print_error(CG_E_NOT_INIT, "");
+    return -1;
+  }
 
   // Check if all subsystems are mounted
 	for (auto& controller : controllers)
-		if (!is_subsys_mounted(controller.name))
-			return CG_E_SUBSYS_NOT_MOUNT;
+		if (!is_subsys_mounted(controller.name)){
+      print_error(CG_E_SUBSYS_NOT_MOUNT, controller.name);
+      return -1;
+    }
 
   for (auto& controller : controllers){
 	  std::string path;
@@ -237,15 +256,17 @@ CgError_t Cgroup::init_group(){
 		if (build_path(name, controller.name, path) != CG_SUCCESS)
 			continue;
 
-    if (mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH))
-      return CG_E_MKDIR;
+    if (mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)){
+      print_error(CG_E_MKDIR, path);
+      return -1;
+    }
 
     base = path;
 		for (auto& param : controller.params){
 	    std::ostringstream oss;
       oss << base << param.name;
 	    if (oss.fail())
-	        return CG_E_STREAM_IO;
+	        return -1;
 
 		  ret = set_control_value(path, param.value);
 		}
@@ -254,30 +275,30 @@ CgError_t Cgroup::init_group(){
 	return ret;
 }
 
-CgError_t Cgroup::create_group(const std::string& controller){
-  CgError_t ret = CG_SUCCESS;
+int Cgroup::create_group(const std::string& controller){
+  int ret = 0;
 
   ret = init();
-  if (ret != CG_SUCCESS)
+  if (ret != 0)
       return ret;
 
   ret = add_controller(controller);
-  if (ret != CG_SUCCESS)
+  if (ret != 0)
       return ret;
 
   ret = init_group();
-  if (ret != CG_SUCCESS)
+  if (ret != 0)
       return ret;
 
   ret = add_parameters(controller);
-  if (ret != CG_SUCCESS)
+  if (ret != 0)
     return ret;
 
   return ret;
 }
 
-CgError_t Cgroup::set_value(const std::string& controller, const std::string& param, const std::string& val){
-  CgError_t ret = CG_SUCCESS;
+int Cgroup::set_value(const std::string& controller, const std::string& param, const std::string& val){
+  int ret = 0;
 
   for (auto& ctrlit : controllers){
 	  std::string path;
@@ -287,7 +308,7 @@ CgError_t Cgroup::set_value(const std::string& controller, const std::string& pa
       continue;
 
     ret = build_path(name, ctrlit.name, path);
-		if (ret != CG_SUCCESS)
+		if (ret != 0)
 			return ret;
 
     base = path;
@@ -298,7 +319,7 @@ CgError_t Cgroup::set_value(const std::string& controller, const std::string& pa
       std::stringstream ss;
       ss << path << "/" << param;
 	    if (ss.fail())
-	        return CG_E_STREAM_IO;
+	        return -1;
 
 		  ret = set_control_value(ss.str().c_str(), val);
       if(ret == CG_SUCCESS){
@@ -315,11 +336,21 @@ CgError_t Cgroup::set_value(const std::string& controller, const std::string& pa
         return ret;
 		}
 	}
-  return CG_E_INVALID_PARAMS;
+  print_error(CG_E_INVALID_PARAMS, param);
+  return -1;
 }
 
-CgError_t Cgroup::assign_proc_group(int pid, const std::string& controller){
+int Cgroup::assign_proc_group(int pid, const std::string& controller){
   return set_value(controller, "tasks", std::to_string(pid));
+}
+
+int Cgroup::delete_group(const std::string& controller){
+  std::string path;
+  int ret = build_path("", controller, path);
+  if(ret)
+    return -1;
+
+  return remove(path.c_str());
 }
 
 void print_error(CgError_t err, const std::string& reason){
