@@ -346,7 +346,7 @@ int Cgroup::assign_proc_group(int pid, const std::string& controller){
 
 int Cgroup::delete_group(const std::string& controller){
   std::string path;
-  int ret = build_path("", controller, path);
+  int ret = build_path(name, controller, path);
   if(ret)
     return -1;
 

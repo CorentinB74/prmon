@@ -7,8 +7,8 @@
 #include <fstream>
 
 #include "limitmem.h"
-#include "cgapi.h"
 
+static Cgroup cg("");
 
 int limitmem(int pid, const std::string& val){
   if (getuid()){
@@ -17,14 +17,13 @@ int limitmem(int pid, const std::string& val){
   }
 
   std::string cgname = "group" + std::to_string(pid);
-  Cgroup cg(cgname);
+  cg.name = cgname;
 
   int ret = cg.create_group("memory");
   if(ret){
     cg.delete_group("memory");
     return -1;
   }
-
 
   ret = cg.set_value("memory", "memory.limit_in_bytes", val);
   if(ret){
@@ -39,4 +38,8 @@ int limitmem(int pid, const std::string& val){
   }
 
   return 0;
+}
+
+int rmvcgroup(int pid){
+  return cg.delete_group("memory");
 }

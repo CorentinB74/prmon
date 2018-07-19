@@ -342,8 +342,6 @@ int main(int argc, char* argv[]) {
       execvp(argv[child_args],&argv[child_args]);
     } else if ( child > 0 ) {
       MemoryMonitor(child, filename, jsonSummary, interval, netdevs);
-    //   if(got_limit_mem)
-    //     rmvcgroup(child);
     }
   }
 
