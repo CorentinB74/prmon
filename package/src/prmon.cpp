@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <pwd.h>
+#include <grp.h>
 
 #include <condition_variable>
 #include <cstddef>
@@ -226,8 +228,8 @@ int main(int argc, char* argv[]) {
   const unsigned int default_interval = 30;
 
   pid_t pid = -1;
-  bool got_pid = false, got_limit_mem = false;
-  std::string filename{default_filename}, val;
+  bool got_pid = false, got_limit_mem = false, got_username = false;
+  std::string filename{default_filename}, val, username;
   std::string jsonSummary{default_json_summary};
   std::vector<std::string> netdevs{};
   unsigned int interval{default_interval};
@@ -240,11 +242,12 @@ int main(int argc, char* argv[]) {
       {"interval", required_argument, NULL, 'i'},
       {"netdev", required_argument, NULL, 'n'},
       {"limitmem", required_argument, NULL, 'm'},
+      {"username", required_argument, NULL, 'u'},
       {"help", no_argument, NULL, 'h'},
       {0, 0, 0, 0}};
 
   char c;
-  while ((c = getopt_long(argc, argv, "p:f:j:i:n:m:h", long_options, NULL)) !=
+  while ((c = getopt_long(argc, argv, "p:f:j:i:n:m:u:h", long_options, NULL)) !=
          -1) {
     switch (c) {
       case 'p':
@@ -266,6 +269,10 @@ int main(int argc, char* argv[]) {
       case 'm':
         got_limit_mem = true;
         val = optarg;
+        break;
+      case 'u':
+        got_username = true;
+        username = optarg;
         break;
       case 'h':
         do_help = 1;
@@ -294,6 +301,8 @@ int main(int argc, char* argv[]) {
         << default_interval << ")\n"
         << "[--netdev, -n dev]        Network device to monitor (can be given\n"
         << "                          multiple times; default ALL devices)\n"
+        << "[--limitmem, -m SIZE]     Limit the physical amount of memory \n"
+        << "                          (can be used to force usage of swap)\n"
         << "[--] prog [arg] ...       Instead of monitoring a PID prmon will\n"
         << "                          execute the given program + args and\n"
         << "                          monitor this (must come after other \n"
@@ -333,15 +342,50 @@ int main(int argc, char* argv[]) {
       std::cerr << "Found marker for child program to execute, but with no program argument.\n";
       return 1;
     }
+
+    if (got_username && !got_limit_mem){
+      std::cerr << "Error : --username option (-u) should be used with --limitmem option (-m).\n";
+      return 1;
+    }
+
+    if (got_limit_mem && !got_username){
+      std::cerr << "Error : --limitmem option (-m) should be used with --username option (-u).\n";
+      return 1;
+    }
+
+    CgroupHandler cghdl;
+    cghdl.init(500);
     pid_t child = fork();
     if( child == 0 ) {
-      if(got_limit_mem)
-        if(limitmem(getpid(), val))
-          // Could not limit the memory
+      if (got_limit_mem && got_username){
+        if(cghdl.limitmem(val)){ // Could not limit the memory
+          cghdl.deletememcg();
           return 1;
+        } else {
+          // Dropping privileges
+          struct passwd *pw = NULL;
+        	pw = getpwnam(username.c_str());
+        	if (pw) {
+        		if (initgroups(pw->pw_name, pw->pw_gid) != 0 ||
+        		    setgid(pw->pw_gid) != 0 || setuid(pw->pw_uid) != 0) {
+        			std::cerr << "Could not drop privileges \n.";
+              cghdl.deletememcg();
+        			return 1;
+        		}
+          } else {
+        	  std::cerr << "Could not find user : " << username << std::endl;
+            cghdl.deletememcg();
+        		return 1;
+        	}
+        }
+      }
+
       execvp(argv[child_args],&argv[child_args]);
     } else if ( child > 0 ) {
       MemoryMonitor(child, filename, jsonSummary, interval, netdevs);
+      if(got_limit_mem && got_username)
+        cghdl.deletememcg();
+
     }
   }
 

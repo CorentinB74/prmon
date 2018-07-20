@@ -8,16 +8,14 @@
 
 #include "limitmem.h"
 
-static Cgroup cg("");
-
-int limitmem(int pid, const std::string& val){
+int CgroupHandler::init(int pid){
   if (getuid()){
     std::cerr << "Permission denied (root needed)." << std::endl;
     return -1;
   }
 
   std::string cgname = "group" + std::to_string(pid);
-  cg.name = cgname;
+  cg = Cgroup(cgname);
 
   int ret = cg.create_group("memory");
   if(ret){
@@ -25,13 +23,23 @@ int limitmem(int pid, const std::string& val){
     return -1;
   }
 
-  ret = cg.set_value("memory", "memory.limit_in_bytes", val);
+  m_pid = pid;
+  cg_init = true;
+  return 0;
+}
+
+int CgroupHandler::limitmem(const std::string& val){
+  if(!cg_init){
+    return -1;
+  }
+
+  int ret = cg.set_value("memory", "memory.limit_in_bytes", val);
   if(ret){
     cg.delete_group("memory");
     return -1;
   }
 
-  ret = cg.assign_proc_group(pid, "memory");
+  ret = cg.assign_proc_group(m_pid, "memory");
   if(ret){
     cg.delete_group("memory");
     return -1;
@@ -40,6 +48,6 @@ int limitmem(int pid, const std::string& val){
   return 0;
 }
 
-int rmvcgroup(int pid){
+int CgroupHandler::deletememcg(){
   return cg.delete_group("memory");
 }

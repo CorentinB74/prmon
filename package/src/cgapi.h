@@ -30,6 +30,8 @@ void print_error(CgError_t err, const std::string& reason);
 class Cgroup{
 
 public:
+  Cgroup(){}
+   
   Cgroup(std::string &_name)
   : name(_name){}
 
