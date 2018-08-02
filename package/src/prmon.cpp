@@ -9,8 +9,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <pwd.h>
-#include <grp.h>
 
 #include <condition_variable>
 #include <cstddef>
@@ -35,6 +33,7 @@
 #include "prmon.h"
 #include "wallmon.h"
 #include "limitmem.h"
+#include "uidutils.h"
 
 using namespace rapidjson;
 
@@ -233,6 +232,7 @@ int main(int argc, char* argv[]) {
   std::string jsonSummary{default_json_summary};
   std::vector<std::string> netdevs{};
   unsigned int interval{default_interval};
+  CgroupHandler cghdl{};
   int do_help{0};
 
   static struct option long_options[] = {
@@ -302,7 +302,10 @@ int main(int argc, char* argv[]) {
         << "[--netdev, -n dev]        Network device to monitor (can be given\n"
         << "                          multiple times; default ALL devices)\n"
         << "[--limitmem, -m SIZE]     Limit the physical amount of memory \n"
-        << "                          (can be used to force usage of swap)\n"
+        << "                          (can be used to force usage of swap).\n"
+        << "                          Root privileges is needed. The --username \n"
+        << "                          should be provided as well in order to \n"
+        << "                          run the process with username privileges. \n"
         << "[--] prog [arg] ...       Instead of monitoring a PID prmon will\n"
         << "                          execute the given program + args and\n"
         << "                          monitor this (must come after other \n"
@@ -331,61 +334,47 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
+  if (got_username && !got_limit_mem){
+    std::cerr << "Error : --username option (-u) should be used with --limitmem option (-m).\n";
+    return 1;
+  } else if (got_limit_mem && !got_username){
+    std::cerr << "Error : --limitmem option (-m) should be used with --username option (-u).\n";
+    return 1;
+  } else if(got_limit_mem && got_username && (getuid() != 0)){
+    std::cerr << "Root privileges needed with --limitmem (-m) and --username (-u) options.\n";
+    return 1;
+  }
+
+  if (got_limit_mem && got_username)
+    cghdl.init(getpid(), "memory");
+
   if (got_pid) {
     if (pid < 2) {
       std::cerr << "Bad PID to monitor.\n";
       return 1;
     }
+    if (got_limit_mem && got_username && cghdl.limitmem(pid, val))
+      return 1;
     MemoryMonitor(pid, filename, jsonSummary, interval, netdevs);
+    if(got_limit_mem && got_username)
+      return cghdl.del_controller("memory");
   } else {
     if (child_args == argc) {
       std::cerr << "Found marker for child program to execute, but with no program argument.\n";
       return 1;
     }
 
-    if (got_username && !got_limit_mem){
-      std::cerr << "Error : --username option (-u) should be used with --limitmem option (-m).\n";
-      return 1;
-    }
-
-    if (got_limit_mem && !got_username){
-      std::cerr << "Error : --limitmem option (-m) should be used with --username option (-u).\n";
-      return 1;
-    }
-
-    CgroupHandler cghdl;
-    cghdl.init(500);
     pid_t child = fork();
     if( child == 0 ) {
-      if (got_limit_mem && got_username){
-        if(cghdl.limitmem(val)){ // Could not limit the memory
-          cghdl.deletememcg();
+      // We drop privileges before running the process
+      if (got_limit_mem && got_username && cghdl.limitmem(getpid(), val) && drop_privileges(username))
           return 1;
-        } else {
-          // Dropping privileges
-          struct passwd *pw = NULL;
-        	pw = getpwnam(username.c_str());
-        	if (pw) {
-        		if (initgroups(pw->pw_name, pw->pw_gid) != 0 ||
-        		    setgid(pw->pw_gid) != 0 || setuid(pw->pw_uid) != 0) {
-        			std::cerr << "Could not drop privileges \n.";
-              cghdl.deletememcg();
-        			return 1;
-        		}
-          } else {
-        	  std::cerr << "Could not find user : " << username << std::endl;
-            cghdl.deletememcg();
-        		return 1;
-        	}
-        }
-      }
-
       execvp(argv[child_args],&argv[child_args]);
+      _exit(0);
     } else if ( child > 0 ) {
       MemoryMonitor(child, filename, jsonSummary, interval, netdevs);
       if(got_limit_mem && got_username)
-        cghdl.deletememcg();
-
+        return cghdl.del_controller("memory");
     }
   }
 

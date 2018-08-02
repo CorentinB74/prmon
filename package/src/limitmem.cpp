@@ -8,28 +8,44 @@
 
 #include "limitmem.h"
 
-int CgroupHandler::init(int pid){
-  if (getuid()){
-    std::cerr << "Permission denied (root needed)." << std::endl;
-    return -1;
+bool CgroupHandler::is_init(const std::string& controller){
+  for(const auto& it : init_map){
+    if(it.first == controller)
+      return it.second;
   }
+  return false;
+}
 
-  std::string cgname = "group" + std::to_string(pid);
-  cg = Cgroup(cgname);
+void CgroupHandler::set_init(const std::string& controller, bool flag){
+  for(auto& it : init_map){
+    if(it.first == controller){
+      it.second = flag;
+      return;
+    }
+  }
+}
 
-  int ret = cg.create_group("memory");
+int CgroupHandler::init(int pid, const std::string& controller){
+  if(is_init(controller))
+    return 0;
+
+  std::stringstream cgname;
+  cgname << "group" << pid;
+  std::string cgname_str = cgname.str();
+  cg = Cgroup(cgname_str);
+
+  int ret = cg.create_group(controller.c_str());
   if(ret){
-    cg.delete_group("memory");
+    cg.delete_group(controller.c_str());
     return -1;
   }
 
-  m_pid = pid;
-  cg_init = true;
+  set_init(controller, true);
   return 0;
 }
 
-int CgroupHandler::limitmem(const std::string& val){
-  if(!cg_init){
+int CgroupHandler::limitmem(int pid, const std::string& val){
+  if(!is_init("memory")){
     return -1;
   }
 
@@ -39,7 +55,7 @@ int CgroupHandler::limitmem(const std::string& val){
     return -1;
   }
 
-  ret = cg.assign_proc_group(m_pid, "memory");
+  ret = cg.assign_proc_group(pid, "memory");
   if(ret){
     cg.delete_group("memory");
     return -1;
@@ -48,6 +64,33 @@ int CgroupHandler::limitmem(const std::string& val){
   return 0;
 }
 
-int CgroupHandler::deletememcg(){
-  return cg.delete_group("memory");
+int CgroupHandler::limitnet(int pid, const std::string& upload, const std::string& download, const std::string& latency){
+  if(!is_init("net_cls")){
+    return -1;
+  }
+
+  int ret = cg.set_value("net_cls", "net_cls.classid", "0x10010");
+  if(ret){
+    cg.delete_group("net_cls");
+    return -1;
+  }
+
+  ret = cg.assign_proc_group(pid, "net_cls");
+  if(ret){
+    cg.delete_group("net_cls");
+    return -1;
+  }
+
+  ret = system(("bash ../scripts/CgNetLimit.sh -u " + upload + " -d " + download + " -l " + latency).c_str());
+  if(ret){
+    cg.delete_group("net_cls");
+    return -1;
+  }
+  return 0;
+}
+
+int CgroupHandler::del_controller(const std::string& controller){
+  if(is_init(controller))
+    return cg.delete_group(controller);
+  return 0;
 }

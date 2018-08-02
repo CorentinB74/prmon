@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <dirent.h>
+#include <ctype.h>
+#include <unistd.h>
 
 #include "cgapi.h"
 
@@ -207,13 +209,25 @@ int Cgroup::add_parameters(const std::string& controller) {
     for(auto& cit : controllers){
       if(!cit.name.compare(controller)){
         while ((dir = readdir(d)) != NULL) {
-          if (!(!std::strcmp(dir->d_name, ".") || !std::strcmp(dir->d_name, "..") ||
-              !std::strcmp(dir->d_name, "memory.stat") || !std::strcmp(dir->d_name, "memory.oom_control") ||
-              !std::strcmp(dir->d_name, "memory.numa_stat"))){
+          if (std::strcmp(dir->d_name, ".") && std::strcmp(dir->d_name, "..")){
             ss << path << "/" << dir->d_name;
             ifs.open(ss.str().c_str());
             if(ifs.is_open()){
               getline(ifs,val_str); // Saves the line in STRING.
+              bool has_only_digits = true;
+              // We do not take into account parameters composed of letter
+              for (const auto& it : val_str){
+                if (it && !isdigit((char)it)){
+                  has_only_digits = false;
+                  break;
+                }
+              }
+              if(!has_only_digits){
+                ifs.close();
+                ss.str("");
+                continue;
+              }
+
               dirname = dir->d_name;
               cit.params.push_back(control_value(dirname, val_str, false));
               ifs.close();
@@ -349,8 +363,7 @@ int Cgroup::delete_group(const std::string& controller){
   int ret = build_path(name, controller, path);
   if(ret)
     return -1;
-
-  return remove(path.c_str());
+  return rmdir(path.c_str());
 }
 
 void print_error(CgError_t err, const std::string& reason){
