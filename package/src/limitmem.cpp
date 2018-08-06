@@ -49,13 +49,13 @@ int CgroupHandler::limitmem(int pid, const std::string& val){
     return -1;
   }
 
-  int ret = cg.set_value("memory", "memory.limit_in_bytes", val);
+  int ret = cg.set_value_group("memory.limit_in_bytes", val);
   if(ret){
     cg.delete_group("memory");
     return -1;
   }
 
-  ret = cg.assign_proc_group(pid, "memory");
+  ret = cg.assign_proc_group("memory", pid);
   if(ret){
     cg.delete_group("memory");
     return -1;
@@ -69,13 +69,13 @@ int CgroupHandler::limitnet(int pid, const std::string& upload, const std::strin
     return -1;
   }
 
-  int ret = cg.set_value("net_cls", "net_cls.classid", "0x10010");
+  int ret = cg.set_value_group("net_cls.classid", "0x10010");
   if(ret){
     cg.delete_group("net_cls");
     return -1;
   }
 
-  ret = cg.assign_proc_group(pid, "net_cls");
+  ret = cg.assign_proc_group("net_cls", pid);
   if(ret){
     cg.delete_group("net_cls");
     return -1;

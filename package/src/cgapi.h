@@ -1,12 +1,16 @@
 #ifndef PRMON_CGAPI_H
 #define PRMON_CGAPI_H 1
 
+#include <libcgroup.h>
+
 #include <vector>
 #include <string>
 
 class Cgroup{
 
 public:
+  Cgroup(){}
+
   Cgroup(std::string &_name)
   : name(_name){}
 

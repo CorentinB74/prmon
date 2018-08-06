@@ -69,6 +69,7 @@ void SignalChildHandler(int /*signal*/) {
 }
 
 void SignalIntHandler(int /*signal*/) {
+  waitpid((pid_t)-1, NULL, WNOHANG);
   for(auto& limit : limits){
     limit->del_limits();
     //delete limit;
