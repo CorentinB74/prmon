@@ -32,12 +32,15 @@
 #include "pidutils.h"
 #include "prmon.h"
 #include "wallmon.h"
-#include "limitmem.h"
+#include "memlim.h"
+#include "netlim.h"
 #include "uidutils.h"
 
 using namespace rapidjson;
 
 bool sigusr1 = false;
+
+std::vector<Ilimit*> limits{};
 
 void SignalCallbackHandler(int /*signal*/) {
   sigusr1 = true;
@@ -65,11 +68,19 @@ void SignalChildHandler(int /*signal*/) {
   }
 }
 
+void SignalIntHandler(int /*signal*/) {
+  for(auto& limit : limits){
+    limit->del_limits();
+    //delete limit;
+  }
+}
+
 int MemoryMonitor(const pid_t mpid, const std::string filename,
                   const std::string jsonSummary, const unsigned int interval,
                   const std::vector<std::string> netdevs) {
   signal(SIGUSR1, SignalCallbackHandler);
   signal(SIGCHLD, SignalChildHandler);
+  signal(SIGINT, SignalIntHandler);
 
   // This is the vector of all monitoring components
   std::vector<Imonitor*> monitors{};
@@ -232,7 +243,6 @@ int main(int argc, char* argv[]) {
   std::string jsonSummary{default_json_summary};
   std::vector<std::string> netdevs{};
   unsigned int interval{default_interval};
-  CgroupHandler cghdl{};
   int do_help{0};
 
   static struct option long_options[] = {
@@ -301,8 +311,7 @@ int main(int argc, char* argv[]) {
         << default_interval << ")\n"
         << "[--netdev, -n dev]        Network device to monitor (can be given\n"
         << "                          multiple times; default ALL devices)\n"
-        << "[--limitmem, -m SIZE]     Limit the physical amount of memory \n"
-        << "                          (can be used to force usage of swap).\n"
+        << "[--limitmem, -m SIZE]     Limit the physical amount of memory. \n"
         << "                          Root privileges is needed. The --username \n"
         << "                          should be provided as well in order to \n"
         << "                          run the process with username privileges. \n"
@@ -345,19 +354,26 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  // Initilize the limits if there are limits
   if (got_limit_mem && got_username)
-    cghdl.init(getpid(), "memory");
+    limits.push_back(new memlim(getpid()));
+  //limits.push_back(new netlim(getpid()));
 
   if (got_pid) {
     if (pid < 2) {
       std::cerr << "Bad PID to monitor.\n";
       return 1;
     }
-    if (got_limit_mem && got_username && cghdl.limitmem(pid, val))
-      return 1;
+    for (auto& limit : limits){
+      if(limit->get_type() == "memory")
+        limit->set_limits(std::map<std::string, std::string>{{"memory.limit_in_bytes", val}});
+      limit->assign(pid);
+    }
     MemoryMonitor(pid, filename, jsonSummary, interval, netdevs);
-    if(got_limit_mem && got_username)
-      return cghdl.del_controller("memory");
+    for (auto& limit : limits){
+      limit->del_limits();
+      delete limit;
+    }
   } else {
     if (child_args == argc) {
       std::cerr << "Found marker for child program to execute, but with no program argument.\n";
@@ -366,15 +382,29 @@ int main(int argc, char* argv[]) {
 
     pid_t child = fork();
     if( child == 0 ) {
+      for (auto& limit : limits){
+        if(limit->get_type() == "memory")
+          limit->set_limits(std::map<std::string, std::string>{{"memory.limit_in_bytes", val}});
+        // if(limit->get_type() == "network")
+        //   limit->set_limits(std::map<std::string, std::string>{{"upload", "1mbit"},{"download","100kb"},{"latency","100ms"}});
+        limit->assign(getpid());
+      }
       // We drop privileges before running the process
-      if (got_limit_mem && got_username && cghdl.limitmem(getpid(), val) && drop_privileges(username))
-          return 1;
+      if (got_username && drop_privileges(username)){
+        for (auto& limit : limits){
+          limit->del_limits();
+          delete limit;
+        }
+        return 1;
+      }
       execvp(argv[child_args],&argv[child_args]);
-      _exit(0);
+      _exit(1);
     } else if ( child > 0 ) {
       MemoryMonitor(child, filename, jsonSummary, interval, netdevs);
-      if(got_limit_mem && got_username)
-        return cghdl.del_controller("memory");
+      for (auto& limit : limits){
+        limit->del_limits();
+        delete limit;
+      }
     }
   }
 

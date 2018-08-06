@@ -9,7 +9,10 @@ add_executable(prmon src/prmon.cpp
 					 src/memmon.cpp
 					 src/limitmem.cpp
 					 src/cgapi.cpp
-					 src/uidutils.cpp)
+					 src/uidutils.cpp
+					 src/memlim.cpp
+					 src/netlim.cpp)
+					 
 target_include_directories(prmon PRIVATE ${RapidJSON_INCLUDE_DIR})
 
 # Set flags based on more unusual build flags
