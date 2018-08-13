@@ -10,6 +10,7 @@ config_file_name=tmp_iptables_rule
 display_help() {
   echo -e "Usage : $0 \e[4mLIMITS\e[24m [\e[4mOPTIONS\e[24m]"
   echo -e "Set bandwhith and add latency for a net_cls cgroup."
+  echo -e "Units are the same as the TC units (see man tc)."
   echo -e ""
   echo -e "\e[1m\e[4mLIMITS\e[0m:"
   echo -e "\e[1m-u\e[0m       Limit upload speed."
@@ -24,26 +25,88 @@ display_help() {
   echo -e "\e[1m-h\e[0m       Show this help."
 }
 
+# Helper function to handle unit conversion
+toBytes() {
+  echo $1 | awk \
+          'BEGIN{IGNORECASE = 1}
+          /[0-9]$/{print $1};
+          /kbps?$/{printf "%ukb\n", $1; exit 0};
+          /mbps?$/{printf "%umb\n", $1; exit 0};
+          /gbps?$/{printf "%ugb\n", $1; exit 0};
+          /bps?$/{printf "%ub\n", $1};'
+}
+
 delete_tc() {
   /sbin/tc qdisc del dev $DEV root 2> /dev/null > /dev/null
 }
 
 delete_ipt_rules() {
-  iptables -D OUTPUT 1 -m cgroup --cgroup $CGCLASSID
-  iptables -D POSTROUTING -t mangle -j CONNMARK --save-mark
-  iptables -D PREROUTING -t mangle -j CONNMARK --restore-mark
-  iptables -D INPUT -m connmark ! --mark $MARKID -j ACCEPT
-  iptables -D INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $(cat /tmp/$config_file_name)/s -j DROP
-  rm /tmp/$config_file_name
+  iptables -D OUTPUT 1 -m cgroup --cgroup $CGCLASSID 2> /dev/null
+  iptables -D POSTROUTING -t mangle -j CONNMARK --save-mark 2> /dev/null
+  iptables -D PREROUTING -t mangle -j CONNMARK --restore-mark 2> /dev/null
+  iptables -D INPUT -m connmark ! --mark $MARKID -j ACCEPT 2> /dev/null
+  iptables -D INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $(cat /tmp/$config_file_name)/s -j DROP 2> /dev/null
+  ip6tables -D OUTPUT 1 -m cgroup --cgroup $CGCLASSID 2> /dev/null
+  ip6tables -D POSTROUTING -t mangle -j CONNMARK --save-mark 2> /dev/null
+  ip6tables -D PREROUTING -t mangle -j CONNMARK --restore-mark 2> /dev/null
+  ip6tables -D INPUT -m connmark ! --mark $MARKID -j ACCEPT 2> /dev/null
+  ip6tables -D INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $(cat /tmp/$config_file_name)/s -j DROP 2> /dev/null
+  rm /tmp/$config_file_name 2> /dev/null
 }
 
 init_ipt_rules() {
   iptables -I OUTPUT 1 -m cgroup --cgroup $CGCLASSID -j MARK --set-mark $MARKID
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
   iptables -A POSTROUTING -t mangle -j CONNMARK --save-mark
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
   iptables -A PREROUTING -t mangle -j CONNMARK --restore-mark
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
   iptables -A INPUT -m connmark ! --mark $MARKID -j ACCEPT
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
   iptables -A INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $D_LIMIT/s -j DROP
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  ip6tables -I OUTPUT 1 -m cgroup --cgroup $CGCLASSID -j MARK --set-mark $MARKID
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  ip6tables -A POSTROUTING -t mangle -j CONNMARK --save-mark
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  ip6tables -A PREROUTING -t mangle -j CONNMARK --restore-mark
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  ip6tables -A INPUT -m connmark ! --mark $MARKID -j ACCEPT
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  ip6tables -A INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $D_LIMIT/s -j DROP
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  # iptables -I OUTPUT 1 -m cgroup --cgroup $CGCLASSID -j MARK --set-mark $MARKID
+  # iptables -A POSTROUTING -t mangle -j CONNMARK --save-mark
+  # iptables -A PREROUTING -t mangle -j CONNMARK --restore-mark
+  # iptables -A INPUT -m connmark ! --mark $MARKID -j ACCEPT
+  # iptables -A INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $D_LIMIT/s -j DROP
+  # ip6tables -I OUTPUT 1 -m cgroup --cgroup $CGCLASSID -j MARK --set-mark $MARKID
+  # ip6tables -A POSTROUTING -t mangle -j CONNMARK --save-mark
+  # ip6tables -A PREROUTING -t mangle -j CONNMARK --restore-mark
+  # ip6tables -A INPUT -m connmark ! --mark $MARKID -j ACCEPT
+  # ip6tables -A INPUT -p tcp -m hashlimit --hashlimit-name hl1 --hashlimit-above $D_LIMIT/s -j DROP
   echo $D_LIMIT > /tmp/$config_file_name
+  return 0
 }
 
 limit_rate_latency_egress() { # $1 : interface, $2 : rate, $3 : latency
@@ -68,7 +131,7 @@ do
 		;;
 	d)
 		D_FLAG=1
-    D_LIMIT=$OPTARG
+    D_LIMIT=$(toBytes $OPTARG)
 		;;
   l)
     DELAY_FLAG=1
@@ -103,12 +166,17 @@ do
   esac
 done
 
-if [[ "$D_FLAG" -eq "1" ]] && [[ "$(echo $D_LIMIT | tr -dc 'a-zA-Z')" != "kb" ]]; then
-  echo "Download limit (-d) unit should be in kilobyte (kb)"
-  exit 1
-elif [[ "$U_FLAG" -eq "1" ]] && [[ "$DELAY_FLAG" -eq "1" ]] && [[ "$D_FLAG" -eq "1" ]]; then
+# if [[ "$D_FLAG" -eq "1" ]] && [[ "$(echo $D_LIMIT | tr -dc 'a-zA-Z')" != "kb" ]]; then
+#   echo "Download limit (-d) unit should be in kilobyte (kb)"
+#   exit 1
+if [[ "$U_FLAG" -eq "1" ]] && [[ "$DELAY_FLAG" -eq "1" ]] && [[ "$D_FLAG" -eq "1" ]]; then
 	limit_rate_latency_egress $DEV $U_LIMIT $DELAY_LIMIT
   init_ipt_rules
+  if [ $? -ne 0 ]; then
+    delete_tc
+    delete_ipt_rules
+    exit 1
+  fi
   exit 0
 else
   echo "You should provide the three options : -u, -d, -l"

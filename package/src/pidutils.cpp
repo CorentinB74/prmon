@@ -2,8 +2,8 @@
 
 // A few utilities handling PID operations
 
-#include <sys/stat.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include <cstddef>
 #include <deque>
@@ -19,7 +19,8 @@ bool kernel_proc_pid_test(const pid_t pid) {
   std::stringstream pid_fname{};
   pid_fname << "/proc/" << pid << "/task/" << pid << "/children" << std::ends;
   struct stat stat_test;
-  if (stat(pid_fname.str().c_str(), &stat_test)) return false;
+  if (stat(pid_fname.str().c_str(), &stat_test))
+    return false;
   return true;
 }
 
@@ -30,8 +31,9 @@ std::vector<pid_t> pstree_pids(const pid_t mother_pid) {
   char smaps_buffer[64];
   snprintf(smaps_buffer, 64, "pstree -A -p %ld | tr \\- \\\\n",
            (long)mother_pid);
-  FILE* pipe = popen(smaps_buffer, "r");
-  if (pipe == 0) return cpids;
+  FILE *pipe = popen(smaps_buffer, "r");
+  if (pipe == 0)
+    return cpids;
 
   char buffer[256];
   std::string result = "";
@@ -70,7 +72,7 @@ std::vector<pid_t> offspring_pids(const pid_t mother_pid) {
   // Now loop over all unprocessed PIDs, querying children
   // and pushing them onto the unprocessed queue, while
   // poping the front onto the final PID list
-  while(unprocessed_pids.size() > 0) {
+  while (unprocessed_pids.size() > 0) {
     std::stringstream child_pid_fname{};
     pid_t next_pid;
     child_pid_fname << "/proc/" << unprocessed_pids[0] << "/task/"

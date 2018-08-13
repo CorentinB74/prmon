@@ -23,7 +23,6 @@ public:
 
 public:
   const std::string name = "memory";
-
 };
 
 #endif

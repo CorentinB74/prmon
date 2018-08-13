@@ -1,31 +1,26 @@
 #ifndef PRMON_CGAPI_H
 #define PRMON_CGAPI_H 1
 
-#include <libcgroup.h>
-
-#include <vector>
 #include <string>
+#include <vector>
 
-class Cgroup{
+class Cgroup {
 
 public:
-  Cgroup(){}
+  Cgroup() {}
 
-  Cgroup(std::string &_name)
-  : name(_name){}
+  Cgroup(std::string &_name) : name(_name) {}
 
-  Cgroup(const char *_name)
-  : name(_name){}
+  Cgroup(const char *_name) : name(_name) {}
 
 private:
   std::string name;
 
 public:
-
-  int create_group(const std::string& controller);
-  int delete_group(const std::string& controller);
-  int assign_proc_group(const std::string& controller, int pid);
-  int set_value_group(const std::string& val_name, const std::string& value);
+  int create_group(const std::string &controller);
+  int delete_group(const std::string &controller);
+  int assign_proc_group(const std::string &controller, int pid);
+  int set_value_group(const std::string &val_name, const std::string &value);
 };
 
 #endif
