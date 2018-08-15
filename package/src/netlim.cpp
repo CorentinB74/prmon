@@ -39,8 +39,10 @@ int netlim::set_limits(const std::map<std::string, std::string> limits) {
   }
   if (upload.empty() || download.empty() || latency.empty())
     return -1;
-  int ret = system(("bash ~/Documents/prmon/package/scripts/CgNetLimit.sh -u " +
-                    upload + " -d " + download + " -l " + latency)
+
+  // TODO : put the correct path and not the relative one
+  int ret = system(("bash ../scripts/CgNetLimit.sh -u " + upload + " -d " +
+                    download + " -l " + latency)
                        .c_str());
   if (ret) {
     cg.delete_group("net_cls");
@@ -53,7 +55,8 @@ int netlim::del_limits() {
   int ret = 0;
   if (is_init()) {
     ret = cg.delete_group("net_cls");
-    ret = system("bash ~/Documents/prmon/package/scripts/CgNetLimit.sh -x");
+    // TODO : put the correct path and not the relative one
+    ret = system("bash ../scripts/CgNetLimit.sh -x");
   }
   return ret;
 }

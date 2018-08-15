@@ -37,9 +37,19 @@
 #include "uidutils.h"
 #include "wallmon.h"
 
+#define erase_limits(limitsVec)                                                \
+  for (auto &limit : limitsVec) {                                              \
+    limit->del_limits();                                                       \
+    delete limit;                                                              \
+  }                                                                            \
+  limits.clear();
+
 using namespace rapidjson;
 
 bool sigusr1 = false;
+
+// Vector of all the limits applied to the process
+std::vector<Ilimit *> limits{};
 
 void SignalCallbackHandler(int /*signal*/) { sigusr1 = true; }
 
@@ -66,11 +76,8 @@ void SignalChildHandler(int /*signal*/) {
 }
 
 // void SignalIntHandler(int /*signal*/) {
-//   waitpid((pid_t)-1, NULL, WNOHANG);
-//   for(auto& limit : limits){
-//     limit->del_limits();
-//     //delete limit;
-//   }
+//   wait(NULL);
+//   erase_limits(limits);
 // }
 
 int MemoryMonitor(const pid_t mpid, const std::string filename,
@@ -251,9 +258,6 @@ int main(int argc, char *argv[]) {
   unsigned int interval{default_interval};
   int do_help{0};
 
-  // Vector of all the limits applied to the process
-  std::vector<Ilimit *> limits{};
-
   static struct option long_options[] = {
       {"pid", required_argument, NULL, 'p'},
       {"filename", required_argument, NULL, 'f'},
@@ -333,14 +337,17 @@ int main(int argc, char *argv[]) {
         << default_json_summary << ")\n"
         << "[--interval, -i TIME]     Seconds between samples (default "
         << default_interval << ")\n"
-        << "[--netdev, -n dev]        Network device to monitor (can be given\n"
+        << "[--netdev, -n dev]        Network device to monitor (can be "
+           "given\n"
         << "                          multiple times; default ALL devices)\n"
         << "[--limitmem, -m SIZE]     Limit the physical amount of memory. \n"
         << "                          Root privileges is needed. --username\n"
-        << "                          should be provided as well in order to\n"
+        << "                          should be provided as well in order "
+           "to\n"
         << "                          run the process with username "
            "privileges.\n"
-        << "[--] prog [arg] ...       Instead of monitoring a PID prmon will\n"
+        << "[--] prog [arg] ...       Instead of monitoring a PID prmon "
+           "will\n"
         << "                          execute the given program + args and\n"
         << "                          monitor this (must come after other \n"
         << "                          arguments)\n"
@@ -385,6 +392,7 @@ int main(int argc, char *argv[]) {
   if (got_upload_speed || got_latency || got_download_speed)
     limits.push_back(new netlim(getpid()));
 
+  int ret = 0;
   if (got_pid) {
     if (pid < 2) {
       std::cerr << "Bad PID to monitor.\n";
@@ -392,15 +400,20 @@ int main(int argc, char *argv[]) {
     }
     for (auto &limit : limits) {
       if (limit->get_type() == "memory")
-        limit->set_limits(
+        ret = limit->set_limits(
             std::map<std::string, std::string>{{"memory.limit_in_bytes", val}});
-      limit->assign(pid);
+
+      if (limit->get_type() == "network")
+        ret = limit->set_limits(std::map<std::string, std::string>{
+            {"upload", u_speed}, {"download", d_speed}, {"latency", latency}});
+
+      ret = limit->assign(pid);
+      if (ret) {
+        erase_limits(limits);
+        return 1;
+      }
     }
     MemoryMonitor(pid, filename, jsonSummary, interval, netdevs);
-    for (auto &limit : limits) {
-      limit->del_limits();
-      delete limit;
-    }
   } else {
     if (child_args == argc) {
       std::cerr << "Found marker for child program to execute, but with no "
@@ -412,37 +425,34 @@ int main(int argc, char *argv[]) {
     if (child == 0) {
       for (auto &limit : limits) {
         if (limit->get_type() == "memory")
-          if (limit->set_limits(std::map<std::string, std::string>{
-                  {"memory.limit_in_bytes", val}}))
-            return 1;
-        if (limit->get_type() == "network")
-          if (limit->set_limits(
-                  std::map<std::string, std::string>{{"upload", u_speed},
-                                                     {"download", d_speed},
-                                                     {"latency", latency}}))
-            return 1;
+          ret = limit->set_limits(std::map<std::string, std::string>{
+              {"memory.limit_in_bytes", val}});
 
-        if (limit->assign(getpid()))
+        if (limit->get_type() == "network")
+          ret = limit->set_limits(
+              std::map<std::string, std::string>{{"upload", u_speed},
+                                                 {"download", d_speed},
+                                                 {"latency", latency}});
+
+        ret = limit->assign(getpid());
+        if (ret) {
+          erase_limits(limits);
           return 1;
+        }
       }
       // We drop privileges before running the process
       if (got_username && drop_privileges(username)) {
-        for (auto &limit : limits) {
-          limit->del_limits();
-          delete limit;
-        }
+        erase_limits(limits);
         return 1;
       }
       execvp(argv[child_args], &argv[child_args]);
+      erase_limits(limits);
       _exit(1);
     } else if (child > 0) {
       MemoryMonitor(child, filename, jsonSummary, interval, netdevs);
-      for (auto &limit : limits) {
-        limit->del_limits();
-        delete limit;
-      }
     }
   }
 
+  erase_limits(limits);
   return 0;
 }
