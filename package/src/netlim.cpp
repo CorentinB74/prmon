@@ -40,9 +40,8 @@ int netlim::set_limits(const std::map<std::string, std::string> limits) {
   if (upload.empty() || download.empty() || latency.empty())
     return -1;
 
-  // TODO : put the correct path and not the relative one
-  int ret = system(("bash ../scripts/CgNetLimit.sh -u " + upload + " -d " +
-                    download + " -l " + latency)
+  int ret = system(("bash cg_net_limit.sh -u " + upload + " -d " + download +
+                    " -l " + latency)
                        .c_str());
   if (ret) {
     cg.delete_group("net_cls");
@@ -55,8 +54,7 @@ int netlim::del_limits() {
   int ret = 0;
   if (is_init()) {
     ret = cg.delete_group("net_cls");
-    // TODO : put the correct path and not the relative one
-    ret = system("bash ../scripts/CgNetLimit.sh -x");
+    ret = system("bash cg_net_limit.sh -x");
   }
   return ret;
 }

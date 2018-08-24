@@ -41,7 +41,7 @@ if(NOT CMAKE_BUILD_TYPE)
   endif()
 endif()
 set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}"
-  CACHE STRING "Choose the type of build, options are: None Release MinSizeRel Debug RelWithDebInfo" FORCE)
+    CACHE STRING "Choose the type of build, options are: None Release MinSizeRel Debug RelWithDebInfo Limits" FORCE)
 
 
 # - Define the C++ Standard to use (Simplest Possible)
